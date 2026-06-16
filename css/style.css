@@ -440,3 +440,54 @@ input[type=number] { text-align: center; }
   gap: 4px;
   margin-top: 2px;
 }
+
+/* ── Sport selector ── */
+.sport-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 4px;
+}
+.sport-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 8px;
+  border: 0.5px solid var(--c-border);
+  border-radius: var(--radius-md);
+  background: var(--c-card);
+  color: var(--c-text);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.12s;
+}
+.sport-btn .ti { font-size: 24px; }
+.sport-btn.active {
+  border-color: var(--accent);
+  background: var(--accent-light);
+  color: var(--accent-dark);
+}
+.sport-btn.coming-soon { opacity: 0.45; cursor: not-allowed; }
+.coming-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  font-size: 9px;
+  background: var(--c-text-3);
+  color: var(--c-card);
+  padding: 1px 5px;
+  border-radius: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+/* ── History card ── */
+.history-card {
+  cursor: pointer;
+  transition: border-color 0.12s;
+  padding: 12px 14px;
+}
+.history-card:hover { border-color: var(--accent); }
