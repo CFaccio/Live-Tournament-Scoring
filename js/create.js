@@ -148,9 +148,13 @@ export function initCreate() {
       console.log('Player added OK');
 
       console.log('Updating user activeTournamentId...');
-      await updateDoc(doc(db, 'users', user.uid), {
+      await setDoc(doc(db, 'users', user.uid), {
+        uid: user.uid,
+        displayName: user.displayName || 'Player',
+        email: user.email || '',
+        rating: 0,
         activeTournamentId: tRef.id
-      });
+      }, { merge: true });
       console.log('All done — navigating to dashboard');
 
       appNavigate('dashboard');
