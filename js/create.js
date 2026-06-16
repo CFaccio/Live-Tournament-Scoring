@@ -1,4 +1,4 @@
-import { db, auth, doc, setDoc, updateDoc, collection } from './firebase.js';
+import { db, auth, doc, setDoc, getDoc, updateDoc, arrayUnion, collection } from './firebase.js';
 import { getFormat, getMatchCount } from './tournament.js';
 
 function genCode() {
@@ -24,7 +24,7 @@ export function renderCreate() {
 
     <div class="card">
       <h3>Number of players</h3>
-      <p class="field-hint">Must be an even number between 6 and 24. Odd numbers get a bye pair.</p>
+      <p class="field-hint">Even number between 6 and 24.</p>
       <div class="player-count-grid" id="player-count-grid">
         ${[6,8,10,12,14,16,18,20,22,24].map(n => `
           <button class="count-btn ${n === 12 ? 'active' : ''}" onclick="selectPlayerCount(${n})" data-count="${n}">${n}</button>
@@ -36,41 +36,26 @@ export function renderCreate() {
     <div class="card">
       <h3>Scoring rules</h3>
       <div class="rule-row">
-        <div class="rule-info">
-          <div class="rule-label">Win</div>
-          <div class="rule-sub">Points for winning a match</div>
-        </div>
+        <div class="rule-info"><div class="rule-label">Win</div><div class="rule-sub">Points for winning a match</div></div>
         <div class="rule-val">3 pts</div>
       </div>
       <div class="rule-row">
-        <div class="rule-info">
-          <div class="rule-label">Draw</div>
-          <div class="rule-sub">Points for a drawn match</div>
-        </div>
+        <div class="rule-info"><div class="rule-label">Draw</div><div class="rule-sub">Points for a drawn match</div></div>
         <div class="rule-val">1 pt</div>
       </div>
       <div class="rule-row">
-        <div class="rule-info">
-          <div class="rule-label">Loss</div>
-          <div class="rule-sub">Points for losing a match</div>
-        </div>
+        <div class="rule-info"><div class="rule-label">Loss</div><div class="rule-sub">Points for losing a match</div></div>
         <div class="rule-val">0 pts</div>
       </div>
       <div class="rule-row">
-        <div class="rule-info">
-          <div class="rule-label">Bonus point</div>
-          <div class="rule-sub">Awarded for winning any set 6-0</div>
-        </div>
+        <div class="rule-info"><div class="rule-label">Bonus point</div><div class="rule-sub">Awarded for winning any set 6-0</div></div>
         <label class="toggle">
           <input type="checkbox" id="bonus-toggle" checked>
           <span class="toggle-slider"></span>
         </label>
       </div>
       <div class="rule-row">
-        <div class="rule-info">
-          <div class="rule-label">Score approval</div>
-          <div class="rule-sub">Opponent must confirm scores. Auto-approves after 24h.</div>
-        </div>
+        <div class="rule-info"><div class="rule-label">Score approval</div><div class="rule-sub">Opponent must confirm. Auto-approves after 24h.</div></div>
         <div class="rule-val" style="color:var(--accent)">On</div>
       </div>
     </div>
@@ -99,6 +84,7 @@ export function initCreate() {
     const name = document.getElementById('t-name').value.trim();
     const bonusPoint = document.getElementById('bonus-toggle').checked;
     const errEl = document.getElementById('create-error');
+    errEl.style.display = 'none';
 
     if (!name) {
       errEl.style.display = 'block';
@@ -112,6 +98,11 @@ export function initCreate() {
 
     try {
       const user = auth.currentUser;
+
+      if (!user) throw new Error('not-logged-in');
+
+      console.log('Creating tournament for user:', user.uid);
+
       const format = getFormat(selectedCount);
       const inviteCode = genCode();
       const tRef = doc(collection(db, 'tournaments'));
@@ -120,7 +111,7 @@ export function initCreate() {
         id: tRef.id,
         name,
         organiserId: user.uid,
-        organiserName: user.displayName,
+        organiserName: user.displayName || 'Organiser',
         playerCount: selectedCount,
         format,
         rules: { winPoints: 3, drawPoints: 1, lossPoints: 0, bonusPoint },
@@ -136,40 +127,42 @@ export function initCreate() {
         startedAt: null
       };
 
+      console.log('Writing tournament doc...');
       await setDoc(tRef, tournament);
+      console.log('Tournament doc written OK');
 
       // Add organiser as first player
-      await joinTournamentAsUser(tRef.id, user, tournament);
+      const userSnap = await getDoc(doc(db, 'users', user.uid));
+      const userData = userSnap.exists() ? userSnap.data() : {};
 
+      const playerEntry = {
+        uid: user.uid,
+        displayName: user.displayName || 'Player',
+        email: user.email || '',
+        rating: userData.rating || 0,
+        joinedAt: new Date()
+      };
+
+      console.log('Adding organiser as player...');
+      await updateDoc(tRef, { players: arrayUnion(playerEntry) });
+      console.log('Player added OK');
+
+      console.log('Updating user activeTournamentId...');
       await updateDoc(doc(db, 'users', user.uid), {
         activeTournamentId: tRef.id
       });
+      console.log('All done — navigating to dashboard');
 
       appNavigate('dashboard');
+
     } catch(e) {
+      console.error('CREATE TOURNAMENT ERROR:', e.code, e.message, e);
       errEl.style.display = 'block';
-      errEl.textContent = 'Failed to create tournament. Please try again.';
+      errEl.textContent = `Error: ${e.message || e.code || 'Unknown error'}`;
       btn.disabled = false;
       btn.innerHTML = '<i class="ti ti-plus"></i> Create tournament';
     }
   };
-}
-
-async function joinTournamentAsUser(tournamentId, user, tournament) {
-  const userDoc = await import('./firebase.js').then(m => m.getDoc(m.doc(m.db, 'users', user.uid)));
-  const userData = userDoc.data();
-
-  const playerEntry = {
-    uid: user.uid,
-    displayName: user.displayName || 'Player',
-    email: user.email,
-    rating: userData?.rating || 0,
-    joinedAt: new Date()
-  };
-
-  const tRef = doc(db, 'tournaments', tournamentId);
-  const { arrayUnion } = await import('./firebase.js');
-  await updateDoc(tRef, { players: arrayUnion(playerEntry) });
 }
 
 function updateFormatPreview(n) {
@@ -180,12 +173,9 @@ function updateFormatPreview(n) {
   const hasBye = n % 2 !== 0;
   const pairs = format.pairs;
 
-  let desc = '';
-  if (format.groupStage.type === 'round-robin') {
-    desc = `${pairs} pairs · single round-robin · ${matches} matches`;
-  } else {
-    desc = `${pairs} pairs · 2 groups · ${matches} league matches`;
-  }
+  let desc = format.groupStage.type === 'round-robin'
+    ? `${pairs} pairs · round-robin · ${matches} matches`
+    : `${pairs} pairs · 2 groups · ${matches} league matches`;
 
   el.innerHTML = `
     <div class="format-chips">
