@@ -18,6 +18,26 @@ export function renderCreate() {
     </div>
 
     <div class="card">
+      <h3>Sport</h3>
+      <div class="sport-grid" id="sport-grid">
+        <button class="sport-btn active" onclick="selectSport('Padel')" data-sport="Padel">
+          <i class="ti ti-tennis" aria-hidden="true"></i>
+          <span>Padel</span>
+        </button>
+        <button class="sport-btn coming-soon" disabled title="Coming soon">
+          <i class="ti ti-golf" aria-hidden="true"></i>
+          <span>Golf</span>
+          <span class="coming-badge">Soon</span>
+        </button>
+        <button class="sport-btn coming-soon" disabled title="Coming soon">
+          <i class="ti ti-ball-bowling" aria-hidden="true"></i>
+          <span>Bowls</span>
+          <span class="coming-badge">Soon</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="card">
       <h3>Tournament name</h3>
       <input type="text" id="t-name" placeholder="e.g. Summer Padel Cup 2025" maxlength="60">
     </div>
@@ -70,6 +90,12 @@ export function renderCreate() {
 let selectedCount = 12;
 
 export function initCreate() {
+  window.selectSport = (sport) => {
+    document.querySelectorAll('.sport-btn').forEach(b =>
+      b.classList.toggle('active', b.dataset.sport === sport)
+    );
+  };
+
   window.selectPlayerCount = (n) => {
     selectedCount = n;
     document.querySelectorAll('.count-btn').forEach(b =>
@@ -109,6 +135,7 @@ export function initCreate() {
 
       const tournament = {
         id: tRef.id,
+        sport,
         name,
         organiserId: user.uid,
         organiserName: user.displayName || 'Organiser',
