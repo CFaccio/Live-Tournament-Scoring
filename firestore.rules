@@ -1,0 +1,28 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Users can read/write their own profile
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Tournament rules
+    match /tournaments/{tournamentId} {
+      // Anyone authenticated can read tournaments they're part of
+      allow read: if request.auth != null &&
+        (resource.data.organiserId == request.auth.uid ||
+         request.auth.uid in resource.data.players.map(p, p.uid));
+
+      // Only organiser can create
+      allow create: if request.auth != null &&
+        request.resource.data.organiserId == request.auth.uid;
+
+      // Players can update matches/scores; organiser can update anything
+      allow update: if request.auth != null &&
+        (resource.data.organiserId == request.auth.uid ||
+         request.auth.uid in resource.data.players.map(p, p.uid));
+    }
+  }
+}
