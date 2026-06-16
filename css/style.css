@@ -491,3 +491,44 @@ input[type=number] { text-align: center; }
   padding: 12px 14px;
 }
 .history-card:hover { border-color: var(--accent); }
+
+/* ── Rule input ── */
+.rule-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.rule-input {
+  width: 52px;
+  padding: 6px 8px;
+  border: 0.5px solid var(--c-border);
+  border-radius: var(--radius-sm);
+  font-size: 15px;
+  font-weight: 600;
+  font-family: inherit;
+  background: var(--c-bg);
+  color: var(--accent);
+  text-align: center;
+  margin: 0;
+}
+.rule-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(29,158,117,0.12);
+  outline: none;
+}
+.rule-input::placeholder { color: var(--c-text-3); font-weight: 400; }
+.rule-unit {
+  font-size: 13px;
+  color: var(--c-text-2);
+  flex-shrink: 0;
+}
+.rule-note {
+  font-size: 12px;
+  color: var(--c-text-2);
+  padding: 8px 10px;
+  background: var(--c-bg);
+  border-radius: var(--radius-sm);
+  margin-top: 8px;
+}
+.rule-note .ti { vertical-align: -2px; margin-right: 4px; font-size: 13px; }
