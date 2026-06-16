@@ -431,3 +431,12 @@ input[type=number] { text-align: center; }
 }
 .toast.show { transform: translateX(-50%) translateY(0); }
 .toast-error { background: var(--danger); color: #fff; }
+
+/* ── Rating edit inline ── */
+.rating-edit-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
