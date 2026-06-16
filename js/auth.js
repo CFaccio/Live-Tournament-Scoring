@@ -1,5 +1,4 @@
-import { auth, db, googleProvider, signInWithPopup, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, doc, setDoc } from './firebase.js';
-import { escHtml } from './tournament.js';
+import { auth, db, googleProvider, signInWithPopup, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, doc, setDoc, getDoc } from './firebase.js';
 
 export function renderAuth() {
   return `
@@ -18,7 +17,6 @@ export function renderAuth() {
 
         <div id="auth-error" class="auth-error" style="display:none"></div>
 
-        <!-- LOGIN -->
         <div id="auth-login">
           <button class="btn btn-google" onclick="signInGoogle()">
             <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
@@ -29,15 +27,12 @@ export function renderAuth() {
             </svg>
             Continue with Google
           </button>
-
           <div class="auth-divider"><span>or</span></div>
-
           <input type="email" id="login-email" placeholder="Email address" autocomplete="email">
           <input type="password" id="login-password" placeholder="Password" autocomplete="current-password">
           <button class="btn btn-primary btn-full" onclick="signInEmail()">Sign in</button>
         </div>
 
-        <!-- REGISTER -->
         <div id="auth-register" style="display:none">
           <button class="btn btn-google" onclick="signInGoogle()">
             <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
@@ -48,9 +43,7 @@ export function renderAuth() {
             </svg>
             Sign up with Google
           </button>
-
           <div class="auth-divider"><span>or</span></div>
-
           <input type="text" id="reg-name" placeholder="Full name" autocomplete="name">
           <input type="email" id="reg-email" placeholder="Email address" autocomplete="email">
           <input type="password" id="reg-password" placeholder="Password (min 6 chars)" autocomplete="new-password">
@@ -60,8 +53,6 @@ export function renderAuth() {
     </div>
   `;
 }
-
-// ── Auth actions (attached to window for inline handlers) ─────────────────
 
 window.authSwitchTab = (tab) => {
   document.querySelectorAll('.auth-tab').forEach((t, i) =>
@@ -88,7 +79,8 @@ window.signInEmail = async () => {
   if (!email || !password) { showAuthError('Please enter your email and password.'); return; }
   try {
     clearAuthError();
-    await signInWithEmailAndPassword(auth, email, password);
+    const cred = await signInWithEmailAndPassword(auth, email, password);
+    await ensureUserDoc(cred.user);
   } catch(e) {
     showAuthError(friendlyError(e.code));
   }
@@ -110,18 +102,22 @@ window.registerEmail = async () => {
   }
 };
 
-async function ensureUserDoc(user, name) {
+export async function ensureUserDoc(user, name) {
   const ref = doc(db, 'users', user.uid);
   const snap = await getDoc(ref);
   if (!snap.exists()) {
+    console.log('Creating user doc for', user.uid);
     await setDoc(ref, {
       uid: user.uid,
       displayName: name || user.displayName || 'Player',
-      email: user.email,
+      email: user.email || '',
       rating: 0,
       activeTournamentId: null,
       createdAt: new Date()
     });
+    console.log('User doc created');
+  } else {
+    console.log('User doc already exists');
   }
 }
 
@@ -137,6 +133,7 @@ function friendlyError(code) {
   const map = {
     'auth/user-not-found': 'No account found with that email.',
     'auth/wrong-password': 'Incorrect password.',
+    'auth/invalid-credential': 'Incorrect email or password.',
     'auth/email-already-in-use': 'An account with that email already exists.',
     'auth/invalid-email': 'Please enter a valid email address.',
     'auth/weak-password': 'Password must be at least 6 characters.',
