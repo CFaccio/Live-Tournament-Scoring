@@ -1,10 +1,4 @@
-function phaseLabel(phase) {
-  if (phase === 'waiting') return 'Waiting for players';
-  if (phase === 'league') return 'League stage';
-  if (phase === 'knockout') return 'Knockout stage';
-  return 'Tournament';
-}
-import { db, auth, doc, updateDoc, onSnapshot, serverTimestamp, Timestamp } from './firebase.js';
+import { db, auth, doc, updateDoc, setDoc, arrayUnion, onSnapshot, serverTimestamp, Timestamp } from './firebase.js';
 import { calcStandings, calcMatchResult, escHtml, timeAgo, formatCountdown, generatePairs, generateMatches } from './tournament.js';
 
 let unsubTournament = null;
@@ -65,6 +59,13 @@ export function initTournament(user, tournamentId) {
     if (tab === 'bracket') renderBracketTab();
     if (tab === 'players') renderPlayersTab();
   };
+}
+
+function phaseLabel(phase) {
+  if (phase === 'waiting') return 'Waiting for players';
+  if (phase === 'league') return 'League stage';
+  if (phase === 'knockout') return 'Knockout stage';
+  return 'Tournament';
 }
 
 function refreshTournamentUI() {
@@ -505,12 +506,37 @@ function renderBracketTab() {
 
   const final = t.knockoutMatches.find(m => m.id === 'final');
   if (final?.status === 'approved' && final.winner) {
+    // Mark tournament as completed
+    if (t.phase !== 'completed') {
+      completeTournament(t, final.winner.name);
+    }
     el.innerHTML += `
       <div class="champion-card">
         <i class="ti ti-trophy" aria-hidden="true"></i>
         <div class="champion-label">Tournament champion</div>
         <div class="champion-name">${escHtml(final.winner.name)}</div>
+        <p style="font-size:13px;color:var(--c-text-2);margin-top:8px">Tournament complete!</p>
+        <button class="btn btn-primary" style="margin-top:12px" onclick="appNavigate('dashboard')">
+          <i class="ti ti-home" aria-hidden="true"></i> Back to dashboard
+        </button>
       </div>`;
+  }
+}
+
+async function completeTournament(t, championName) {
+  try {
+    await updateDoc(doc(db, 'tournaments', t.id), {
+      phase: 'completed',
+      completedAt: new Date(),
+      championName
+    });
+    // Archive on user doc and clear active tournament
+    await setDoc(doc(db, 'users', currentUser.uid), {
+      activeTournamentId: null,
+      tournamentHistory: arrayUnion(t.id)
+    }, { merge: true });
+  } catch(e) {
+    console.error('Error completing tournament:', e);
   }
 }
 
