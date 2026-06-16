@@ -56,27 +56,61 @@ export function renderCreate() {
     <div class="card">
       <h3>Scoring rules</h3>
       <div class="rule-row">
-        <div class="rule-info"><div class="rule-label">Win</div><div class="rule-sub">Points for winning a match</div></div>
-        <div class="rule-val">3 pts</div>
+        <div class="rule-info">
+          <div class="rule-label">Win</div>
+          <div class="rule-sub">Points for winning a match</div>
+        </div>
+        <div class="rule-input-wrap">
+          <input type="number" id="pts-win" value="3" min="0" max="99" placeholder="3"
+            class="rule-input" aria-label="Points for a win">
+          <span class="rule-unit">pts</span>
+        </div>
       </div>
       <div class="rule-row">
-        <div class="rule-info"><div class="rule-label">Draw</div><div class="rule-sub">Points for a drawn match</div></div>
-        <div class="rule-val">1 pt</div>
+        <div class="rule-info">
+          <div class="rule-label">Draw</div>
+          <div class="rule-sub">Points for a drawn match</div>
+        </div>
+        <div class="rule-input-wrap">
+          <input type="number" id="pts-draw" value="1" min="0" max="99" placeholder="1"
+            class="rule-input" aria-label="Points for a draw">
+          <span class="rule-unit">pts</span>
+        </div>
       </div>
       <div class="rule-row">
-        <div class="rule-info"><div class="rule-label">Loss</div><div class="rule-sub">Points for losing a match</div></div>
-        <div class="rule-val">0 pts</div>
+        <div class="rule-info">
+          <div class="rule-label">Loss</div>
+          <div class="rule-sub">Points for losing a match</div>
+        </div>
+        <div class="rule-input-wrap">
+          <input type="number" id="pts-loss" value="0" min="0" max="99" placeholder="0"
+            class="rule-input" aria-label="Points for a loss">
+          <span class="rule-unit">pts</span>
+        </div>
       </div>
       <div class="rule-row">
-        <div class="rule-info"><div class="rule-label">Bonus point</div><div class="rule-sub">Awarded for winning any set 6-0</div></div>
+        <div class="rule-info">
+          <div class="rule-label">Bonus point</div>
+          <div class="rule-sub">Awarded for winning any set 6-0</div>
+        </div>
         <label class="toggle">
           <input type="checkbox" id="bonus-toggle" checked>
           <span class="toggle-slider"></span>
         </label>
       </div>
       <div class="rule-row">
-        <div class="rule-info"><div class="rule-label">Score approval</div><div class="rule-sub">Opponent must confirm. Auto-approves after 24h.</div></div>
-        <div class="rule-val" style="color:var(--accent)">On</div>
+        <div class="rule-info">
+          <div class="rule-label">Score approval</div>
+          <div class="rule-sub">Opponent must confirm scores</div>
+        </div>
+        <label class="toggle">
+          <input type="checkbox" id="approval-toggle" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div id="approval-note" class="rule-note">
+        <i class="ti ti-info-circle" aria-hidden="true"></i>
+        Scores auto-approve after 24 hours if not confirmed.
       </div>
     </div>
 
@@ -90,6 +124,15 @@ export function renderCreate() {
 let selectedCount = 12;
 
 export function initCreate() {
+  // Show/hide approval note based on toggle
+  const approvalToggle = document.getElementById('approval-toggle');
+  const approvalNote = document.getElementById('approval-note');
+  if (approvalToggle && approvalNote) {
+    approvalToggle.addEventListener('change', () => {
+      approvalNote.style.display = approvalToggle.checked ? 'block' : 'none';
+    });
+  }
+
   window.selectSport = (sport) => {
     document.querySelectorAll('.sport-btn').forEach(b =>
       b.classList.toggle('active', b.dataset.sport === sport)
@@ -141,7 +184,7 @@ export function initCreate() {
         organiserName: user.displayName || 'Organiser',
         playerCount: selectedCount,
         format,
-        rules: { winPoints: 3, drawPoints: 1, lossPoints: 0, bonusPoint },
+        rules: { winPoints, drawPoints, lossPoints, bonusPoint, approvalRequired },
         inviteCode,
         phase: 'waiting',
         players: [],
