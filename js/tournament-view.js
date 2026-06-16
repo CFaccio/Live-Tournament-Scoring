@@ -584,15 +584,36 @@ function renderPlayersTab() {
         <h3>Players <span class="badge badge-gray">${t.players?.length || 0} / ${t.playerCount}</span></h3>
       </div>
       ${(t.players || []).map(p => `
-        <div class="player-list-row">
+        <div class="player-list-row" id="player-row-${p.uid}">
           <div class="player-avatar">${(p.displayName||'?')[0].toUpperCase()}</div>
           <div class="player-list-info">
-            <div class="player-list-name">${escHtml(p.displayName)} ${p.uid === currentUser.uid ? '<span class="badge badge-green" style="font-size:10px">You</span>' : ''} ${p.uid === t.organiserId ? '<span class="badge badge-gray" style="font-size:10px">Organiser</span>' : ''}</div>
-            <div class="player-list-sub">Rating: ${p.rating || 'Not set'}</div>
+            <div class="player-list-name">
+              ${escHtml(p.displayName)}
+              ${p.uid === currentUser.uid ? '<span class="badge badge-green" style="font-size:10px;margin-left:4px">You</span>' : ''}
+              ${p.uid === t.organiserId ? '<span class="badge badge-gray" style="font-size:10px;margin-left:4px">Organiser</span>' : ''}
+            </div>
+            ${isOrg && t.phase === 'waiting' ? `
+              <div class="rating-edit-row" id="rating-display-${p.uid}">
+                <span class="player-list-sub">Rating: ${p.rating || 'Not set'}</span>
+                <button class="btn btn-sm" style="padding:2px 8px;font-size:11px;margin-left:6px" onclick="showRatingEdit('${p.uid}', ${p.rating || 0})">
+                  <i class="ti ti-edit" style="font-size:12px" aria-hidden="true"></i> Edit
+                </button>
+              </div>
+              <div class="rating-edit-row" id="rating-input-${p.uid}" style="display:none;margin-top:6px">
+                <input type="number" step="0.1" min="0" max="10" placeholder="e.g. 4.5"
+                  id="rating-val-${p.uid}"
+                  style="width:80px;padding:4px 8px;font-size:13px;margin:0"
+                  value="${p.rating || ''}">
+                <button class="btn btn-primary btn-sm" style="padding:4px 10px;font-size:12px;margin-left:4px" onclick="saveRatingInline('${p.uid}')">Save</button>
+                <button class="btn btn-sm" style="padding:4px 10px;font-size:12px;margin-left:4px" onclick="cancelRatingEdit('${p.uid}')">Cancel</button>
+              </div>
+            ` : `
+              <div class="player-list-sub">Rating: ${p.rating || 'Not set'}</div>
+            `}
           </div>
-          ${isOrg && t.phase === 'waiting' && p.uid !== currentUser.uid ? `
-            <button class="btn btn-sm" onclick="setPlayerRating('${p.uid}')">
-              <i class="ti ti-edit" aria-hidden="true"></i>
+          ${isOrg && t.phase === 'waiting' && p.uid !== t.organiserId ? `
+            <button class="btn btn-sm btn-danger" style="flex-shrink:0" onclick="removePlayerFromTournament('${p.uid}')" aria-label="Remove player">
+              <i class="ti ti-trash" aria-hidden="true"></i>
             </button>
           ` : ''}
         </div>
@@ -602,6 +623,7 @@ function renderPlayersTab() {
     ${isOrg && t.phase === 'waiting' ? `
       <div class="card">
         <h3>Invite link</h3>
+        <p style="font-size:13px;color:var(--c-text-2);margin-bottom:10px">Share this with your players so they can join:</p>
         <div class="invite-row">
           <code class="invite-code" style="flex:1;font-size:12px;overflow:hidden;text-overflow:ellipsis">${location.origin}${location.pathname}?join=${t.inviteCode}</code>
           <button class="btn btn-sm" onclick="copyInvite('${t.inviteCode}')"><i class="ti ti-copy" aria-hidden="true"></i></button>
@@ -611,9 +633,25 @@ function renderPlayersTab() {
   `;
 }
 
-window.setPlayerRating = async (uid) => {
-  const rating = parseFloat(prompt('Enter padel rating for this player (e.g. 4.5):'));
-  if (isNaN(rating)) return;
+window.showRatingEdit = (uid, currentRating) => {
+  document.getElementById(`rating-display-${uid}`).style.display = 'none';
+  document.getElementById(`rating-input-${uid}`).style.display = 'flex';
+  const input = document.getElementById(`rating-val-${uid}`);
+  if (input) { input.focus(); input.select(); }
+};
+
+window.cancelRatingEdit = (uid) => {
+  document.getElementById(`rating-display-${uid}`).style.display = 'flex';
+  document.getElementById(`rating-input-${uid}`).style.display = 'none';
+};
+
+window.saveRatingInline = async (uid) => {
+  const input = document.getElementById(`rating-val-${uid}`);
+  const rating = parseFloat(input?.value);
+  if (isNaN(rating) || rating < 0 || rating > 10) {
+    showToast('Please enter a valid rating between 0 and 10.', 'error');
+    return;
+  }
   const t = currentTournament;
   const players = [...(t.players || [])];
   const idx = players.findIndex(p => p.uid === uid);
@@ -621,6 +659,14 @@ window.setPlayerRating = async (uid) => {
   players[idx] = { ...players[idx], rating };
   await updateDoc(doc(db, 'tournaments', t.id), { players });
   showToast('Rating updated.');
+};
+
+window.removePlayerFromTournament = async (uid) => {
+  const t = currentTournament;
+  if (!t || t.organiserId !== currentUser.uid || t.phase !== 'waiting') return;
+  const players = (t.players || []).filter(p => p.uid !== uid);
+  await updateDoc(doc(db, 'tournaments', t.id), { players });
+  showToast('Player removed.');
 };
 
 // ── Knockout generator ────────────────────────────────────────────────────
