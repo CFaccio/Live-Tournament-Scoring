@@ -1,3 +1,9 @@
+function phaseLabel(phase) {
+  if (phase === 'waiting') return 'Waiting for players';
+  if (phase === 'league') return 'League stage';
+  if (phase === 'knockout') return 'Knockout stage';
+  return 'Tournament';
+}
 import { db, auth, doc, updateDoc, onSnapshot, serverTimestamp, Timestamp } from './firebase.js';
 import { calcStandings, calcMatchResult, escHtml, timeAgo, formatCountdown, generatePairs, generateMatches } from './tournament.js';
 
