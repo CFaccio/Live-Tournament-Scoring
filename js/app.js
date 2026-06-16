@@ -38,8 +38,8 @@ window.appNavigate = (screen, params = {}) => {
       break;
 
     case 'join':
-      render(renderJoin());
-      initJoin();
+      render(renderJoin(params));
+      initJoin(params);
       break;
 
     case 'profile':
@@ -59,7 +59,7 @@ window.appNavigate = (screen, params = {}) => {
 
 // ── Join tournament ───────────────────────────────────────────────────────
 
-function renderJoin() {
+function renderJoin(params = {}) {
   return `
     <div class="page-header">
       <button class="btn btn-icon" onclick="appNavigate('dashboard')" aria-label="Back">
@@ -73,80 +73,158 @@ function renderJoin() {
     <div class="card">
       <h3>Invite code</h3>
       <input type="text" id="join-code" placeholder="e.g. AB12CD" maxlength="6"
-        style="text-transform:uppercase;letter-spacing:0.1em;font-size:20px;text-align:center">
+        style="text-transform:uppercase;letter-spacing:0.1em;font-size:20px;text-align:center"
+        value="${params.code || ''}">
     </div>
     <div id="join-error" class="alert" style="display:none"></div>
     <button class="btn btn-primary btn-full" onclick="doJoin()">
+      <i class="ti ti-search" aria-hidden="true"></i> Find tournament
+    </button>
+  `;
+}
+
+function renderRatingEntry(tournament) {
+  const sport = tournament.sport || 'Padel';
+  return `
+    <div class="page-header">
+      <div>
+        <h1>One more step</h1>
+        <p class="subtitle">You've been invited to ${escHtml(tournament.name)}</p>
+      </div>
+    </div>
+    <div class="card">
+      <div style="text-align:center;padding:8px 0 16px">
+        <i class="ti ti-tennis" style="font-size:40px;color:var(--accent)" aria-hidden="true"></i>
+        <div style="font-size:17px;font-weight:700;margin-top:8px">${escHtml(tournament.name)}</div>
+        <div style="font-size:13px;color:var(--c-text-2);margin-top:4px">${escHtml(sport)} · ${tournament.playerCount} players</div>
+      </div>
+      <h3>Your ${escHtml(sport)} rating</h3>
+      <p class="field-hint">This is used to create balanced pairs. Be honest — it makes the tournament fairer for everyone!</p>
+      <div style="display:flex;align-items:center;gap:8px">
+        <input type="number" id="player-rating" step="0.1" min="0" max="10"
+          placeholder="e.g. 4.5" style="flex:1;font-size:18px;text-align:center">
+        <span style="font-size:14px;color:var(--c-text-2);white-space:nowrap">out of 10</span>
+      </div>
+      <p style="font-size:12px;color:var(--c-text-3);margin-top:8px;text-align:center">
+        Not sure? Ask the organiser or enter your best estimate.
+      </p>
+    </div>
+    <div id="rating-error" class="alert" style="display:none"></div>
+    <button class="btn btn-primary btn-full" onclick="submitRatingAndJoin()">
       <i class="ti ti-login" aria-hidden="true"></i> Join tournament
     </button>
   `;
 }
 
-function initJoin() {
+function initJoin(params = {}) {
   const input = document.getElementById('join-code');
   if (input) {
     input.addEventListener('input', () => {
       input.value = input.value.toUpperCase().replace(/[^A-Z0-9]/g,'');
     });
+    // Auto-search if code was passed in via URL
+    if (params.code && params.code.length === 6) {
+      setTimeout(() => doJoinLookup(params.code), 100);
+    }
   }
 
-  window.doJoin = async () => {
-    const code = document.getElementById('join-code').value.trim().toUpperCase();
+  let pendingTournament = null;
+  let pendingTournamentId = null;
+
+  window.doJoin = () => doJoinLookup();
+
+  async function doJoinLookup(autoCode) {
+    const code = (autoCode || document.getElementById('join-code')?.value || '').trim().toUpperCase();
     const errEl = document.getElementById('join-error');
+    if (errEl) errEl.style.display = 'none';
+
     if (code.length !== 6) {
-      errEl.style.display = 'block';
-      errEl.textContent = 'Please enter a 6-character invite code.';
+      if (errEl) { errEl.style.display = 'block'; errEl.textContent = 'Please enter a 6-character invite code.'; }
       return;
     }
+
     try {
-      const { collection, query, where, getDocs } = await import('./firebase.js');
+      const { collection, query, where } = await import('./firebase.js');
+      const { getDocs } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
       const q = query(collection(db, 'tournaments'), where('inviteCode', '==', code));
-      // Use a one-time get for join
-      const { getDocs: gd } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
-      const snap = await gd(q);
+      const snap = await getDocs(q);
 
       if (snap.empty) {
-        errEl.style.display = 'block';
-        errEl.textContent = 'No tournament found with that code.';
+        if (errEl) { errEl.style.display = 'block'; errEl.textContent = 'No tournament found with that code.'; }
         return;
       }
 
       const tDoc = snap.docs[0];
       const t = tDoc.data();
 
+      // Already a member — just rejoin
       if (t.players?.some(p => p.uid === currentUser.uid)) {
-        await updateDoc(doc(db, 'users', currentUser.uid), { activeTournamentId: tDoc.id });
+        await setDoc(doc(db, 'users', currentUser.uid), { activeTournamentId: tDoc.id }, { merge: true });
         appNavigate('tournament', { id: tDoc.id });
         return;
       }
 
       if ((t.players?.length || 0) >= t.playerCount) {
-        errEl.style.display = 'block';
-        errEl.textContent = 'This tournament is already full.';
+        if (errEl) { errEl.style.display = 'block'; errEl.textContent = 'This tournament is already full.'; }
         return;
       }
 
-      const userSnap = await getDoc(doc(db, 'users', currentUser.uid));
-      const userData = userSnap.data();
+      // Show rating entry screen
+      pendingTournament = t;
+      pendingTournamentId = tDoc.id;
+      const app = document.getElementById('app');
+      app.innerHTML = renderRatingEntry(t);
 
+    } catch(e) {
+      console.error(e);
+      if (errEl) { errEl.style.display = 'block'; errEl.textContent = 'Failed to find tournament. Please try again.'; }
+    }
+  }
+
+  window.submitRatingAndJoin = async () => {
+    const ratingInput = document.getElementById('player-rating');
+    const errEl = document.getElementById('rating-error');
+    const rating = parseFloat(ratingInput?.value);
+
+    if (isNaN(rating) || rating < 0 || rating > 10) {
+      errEl.style.display = 'block';
+      errEl.textContent = 'Please enter a valid rating between 0 and 10.';
+      return;
+    }
+
+    try {
       const { arrayUnion } = await import('./firebase.js');
-      await updateDoc(doc(db, 'tournaments', tDoc.id), {
-        players: arrayUnion({
-          uid: currentUser.uid,
-          displayName: currentUser.displayName || 'Player',
-          email: currentUser.email,
-          rating: userData?.rating || 0,
-          joinedAt: new Date()
-        })
+      const playerEntry = {
+        uid: currentUser.uid,
+        displayName: currentUser.displayName || 'Player',
+        email: currentUser.email || '',
+        rating,
+        joinedAt: new Date()
+      };
+
+      await updateDoc(doc(db, 'tournaments', pendingTournamentId), {
+        players: arrayUnion(playerEntry)
       });
 
-      await updateDoc(doc(db, 'users', currentUser.uid), { activeTournamentId: tDoc.id });
-      appNavigate('tournament', { id: tDoc.id });
+      // Save rating to user profile too
+      await setDoc(doc(db, 'users', currentUser.uid), {
+        activeTournamentId: pendingTournamentId,
+        rating
+      }, { merge: true });
+
+      appNavigate('tournament', { id: pendingTournamentId });
     } catch(e) {
+      console.error(e);
       errEl.style.display = 'block';
       errEl.textContent = 'Failed to join. Please try again.';
     }
   };
+}
+
+function escHtml(str) {
+  return String(str || '')
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 // ── Profile ───────────────────────────────────────────────────────────────
@@ -227,11 +305,7 @@ onAuthStateChanged(auth, async (user) => {
     const joinCode = params.get('join');
     if (joinCode) {
       history.replaceState({}, '', location.pathname);
-      appNavigate('join');
-      setTimeout(() => {
-        const input = document.getElementById('join-code');
-        if (input) { input.value = joinCode.toUpperCase(); }
-      }, 100);
+      appNavigate('join', { code: joinCode.toUpperCase() });
     } else {
       appNavigate('dashboard');
     }
