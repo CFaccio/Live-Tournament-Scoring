@@ -152,6 +152,10 @@ export function initCreate() {
   window.createTournament = async () => {
     const name = document.getElementById('t-name').value.trim();
     const bonusPoint = document.getElementById('bonus-toggle').checked;
+    const approvalRequired = document.getElementById('approval-toggle')?.checked ?? true;
+    const winPoints = parseInt(document.getElementById('pts-win')?.value) || 3;
+    const drawPoints = parseInt(document.getElementById('pts-draw')?.value) || 1;
+    const lossPoints = parseInt(document.getElementById('pts-loss')?.value) || 0;
     const errEl = document.getElementById('create-error');
     errEl.style.display = 'none';
 
@@ -172,6 +176,7 @@ export function initCreate() {
 
       console.log('Creating tournament for user:', user.uid);
 
+      const sport = document.querySelector('.sport-btn.active')?.dataset.sport || 'Padel';
       const format = getFormat(selectedCount);
       const inviteCode = genCode();
       const tRef = doc(collection(db, 'tournaments'));
