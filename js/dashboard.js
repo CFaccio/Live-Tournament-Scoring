@@ -33,7 +33,7 @@ export function initDashboard(user, navigate) {
     const content = document.getElementById('dashboard-content');
     if (!content) return;
 
-    const activeTournamentId = userData?.activeTournamentId;
+    let activeTournamentId = userData?.activeTournamentId;
     const tournamentHistory = userData?.tournamentHistory || [];
 
     let activeTournament = null;
@@ -52,6 +52,29 @@ export function initDashboard(user, navigate) {
       } else {
         // Tournament deleted — clear it
         await setDoc(userRef, { activeTournamentId: null }, { merge: true });
+      }
+    }
+
+    // Self-healing: if no activeTournamentId on profile, check whether the
+    // user is actually already a player in some tournament (this can happen
+    // if the join succeeded but the profile update step failed previously).
+    if (!activeTournament) {
+      try {
+        const { collection: col, query: q, where: wh, getDocs } = await import('./firebase.js');
+        const { getDocs: gd } = await import('https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js');
+        const allTQuery = q(col(db, 'tournaments'));
+        const snap = await gd(allTQuery);
+        const found = snap.docs.find(d => {
+          const data = d.data();
+          return data.players?.some(p => p.uid === user.uid) && data.phase !== 'completed';
+        });
+        if (found) {
+          console.log('Self-heal: found tournament player was already in, repairing profile');
+          activeTournament = { id: found.id, ...found.data() };
+          await setDoc(userRef, { activeTournamentId: found.id }, { merge: true });
+        }
+      } catch(e) {
+        console.error('Self-heal check failed:', e);
       }
     }
 
