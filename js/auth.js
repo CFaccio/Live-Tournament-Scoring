@@ -1,4 +1,4 @@
-import { auth, db, googleProvider, signInWithPopup, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, doc, setDoc, getDoc } from './firebase.js';
+import { auth, db, googleProvider, signInWithPopup, createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile, sendPasswordResetEmail, doc, setDoc, getDoc } from './firebase.js';
 
 export function renderAuth() {
   return `
@@ -31,6 +31,19 @@ export function renderAuth() {
           <input type="email" id="login-email" placeholder="Email address" autocomplete="email">
           <input type="password" id="login-password" placeholder="Password" autocomplete="current-password">
           <button class="btn btn-primary btn-full" onclick="signInEmail()">Sign in</button>
+          <button class="auth-link-btn" onclick="authSwitchTab('forgot')">Forgot your password?</button>
+        </div>
+
+        <!-- FORGOT PASSWORD -->
+        <div id="auth-forgot" style="display:none">
+          <p style="font-size:13px;color:var(--c-text-2);margin-bottom:14px">
+            Enter your email and we'll send you a link to reset your password.
+          </p>
+          <input type="email" id="forgot-email" placeholder="Email address" autocomplete="email">
+          <button class="btn btn-primary btn-full" onclick="sendResetEmail()">Send reset link</button>
+          <button class="auth-link-btn" onclick="authSwitchTab('login')">
+            <i class="ti ti-arrow-left" style="font-size:13px;vertical-align:-2px" aria-hidden="true"></i> Back to sign in
+          </button>
         </div>
 
         <div id="auth-register" style="display:none">
@@ -60,7 +73,20 @@ window.authSwitchTab = (tab) => {
   );
   document.getElementById('auth-login').style.display = tab === 'login' ? 'block' : 'none';
   document.getElementById('auth-register').style.display = tab === 'register' ? 'block' : 'none';
+  document.getElementById('auth-forgot').style.display = tab === 'forgot' ? 'block' : 'none';
   clearAuthError();
+};
+
+window.sendResetEmail = async () => {
+  const email = document.getElementById('forgot-email').value.trim();
+  if (!email) { showAuthError('Please enter your email address.'); return; }
+  try {
+    clearAuthError();
+    await sendPasswordResetEmail(auth, email);
+    showAuthError('Check your inbox — a password reset link has been sent.', 'success');
+  } catch(e) {
+    showAuthError(friendlyError(e.code));
+  }
 };
 
 window.signInGoogle = async () => {
@@ -121,9 +147,13 @@ export async function ensureUserDoc(user, name) {
   }
 }
 
-function showAuthError(msg) {
+function showAuthError(msg, type = 'error') {
   const el = document.getElementById('auth-error');
-  if (el) { el.style.display = 'block'; el.textContent = msg; }
+  if (el) {
+    el.style.display = 'block';
+    el.textContent = msg;
+    el.classList.toggle('auth-success', type === 'success');
+  }
 }
 function clearAuthError() {
   const el = document.getElementById('auth-error');
@@ -139,6 +169,7 @@ function friendlyError(code) {
     'auth/weak-password': 'Password must be at least 6 characters.',
     'auth/popup-closed-by-user': 'Sign-in was cancelled.',
     'auth/network-request-failed': 'Network error. Please check your connection.',
+    'auth/too-many-requests': 'Too many attempts. Please wait a moment and try again.',
   };
   return map[code] || 'Something went wrong. Please try again.';
 }
