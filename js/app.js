@@ -192,6 +192,9 @@ function initJoin(params = {}) {
       return;
     }
 
+    const btn = document.querySelector('#app .btn-primary');
+    if (btn) { btn.disabled = true; btn.innerHTML = '<i class="ti ti-loader-2 spin"></i> Joining...'; }
+
     try {
       const { arrayUnion } = await import('./firebase.js');
       const playerEntry = {
@@ -202,22 +205,35 @@ function initJoin(params = {}) {
         joinedAt: new Date()
       };
 
+      console.log('Step 1: adding player to tournament...');
       await updateDoc(doc(db, 'tournaments', pendingTournamentId), {
         players: arrayUnion(playerEntry)
       });
+      console.log('Step 1 OK — player added to tournament');
 
-      // Save rating to user profile too
+    } catch(e) {
+      console.error('Step 1 FAILED — could not add player to tournament:', e.code, e.message);
+      errEl.style.display = 'block';
+      errEl.textContent = `Failed to join: ${e.message || e.code}`;
+      if (btn) { btn.disabled = false; btn.innerHTML = '<i class="ti ti-login"></i> Join tournament'; }
+      return;
+    }
+
+    // Step 2 is separate — if this fails, the player is still in the
+    // tournament (step 1 succeeded), so we retry rather than blocking them.
+    try {
+      console.log('Step 2: updating user profile...');
       await setDoc(doc(db, 'users', currentUser.uid), {
         activeTournamentId: pendingTournamentId,
         rating
       }, { merge: true });
-
-      appNavigate('tournament', { id: pendingTournamentId });
+      console.log('Step 2 OK — user profile updated');
     } catch(e) {
-      console.error(e);
-      errEl.style.display = 'block';
-      errEl.textContent = 'Failed to join. Please try again.';
+      console.error('Step 2 FAILED — player joined but profile not updated:', e.code, e.message);
+      // Non-fatal — they're already a player, just navigate them through
     }
+
+    appNavigate('tournament', { id: pendingTournamentId });
   };
 }
 
