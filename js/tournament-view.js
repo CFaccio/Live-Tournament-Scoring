@@ -34,9 +34,13 @@ export function renderTournament() {
   `;
 }
 
+let autoApprovalTimer = null;
+let isWriting = false; // prevents auto-approval check from running while a manual write is in flight
+
 export function initTournament(user, tournamentId) {
   currentUser = user;
   if (unsubTournament) unsubTournament();
+  if (autoApprovalTimer) clearInterval(autoApprovalTimer);
 
   const tRef = doc(db, 'tournaments', tournamentId);
 
@@ -44,8 +48,14 @@ export function initTournament(user, tournamentId) {
     if (!snap.exists()) { appNavigate('dashboard'); return; }
     currentTournament = { id: snap.id, ...snap.data() };
     refreshTournamentUI();
-    checkAutoApprovals(tRef);
   });
+
+  // Check for auto-approvals once on load, then every 5 minutes —
+  // NOT on every snapshot fire, which previously caused a race condition
+  // where a manual approve and an auto-approve check could write at
+  // almost the same instant and clobber each other.
+  checkAutoApprovals(tRef);
+  autoApprovalTimer = setInterval(() => checkAutoApprovals(tRef), 5 * 60 * 1000);
 
   window.tSwitchTab = (tab) => {
     document.querySelectorAll('.tab').forEach((t, i) =>
@@ -268,73 +278,101 @@ window.submitScore = async (matchId) => {
 
   const result = calcMatchResult(sets.filter(s => s.a !== '' && s.b !== ''));
 
-  const t = currentTournament;
-  const matches = [...(t.matches || [])];
-  const idx = matches.findIndex(m => m.id === matchId);
-  if (idx === -1) return;
+  isWriting = true;
+  try {
+    const t = currentTournament;
+    const matches = [...(t.matches || [])];
+    const idx = matches.findIndex(m => m.id === matchId);
+    if (idx === -1) { console.error('submitScore: match not found', matchId); return; }
 
-  matches[idx] = {
-    ...matches[idx],
-    sets: sets.filter(s => s.a !== '' && s.b !== ''),
-    status: 'submitted',
-    submittedBy: currentUser.uid,
-    submittedAt: Timestamp.now(),
-    pointsA: result.pA, pointsB: result.pB,
-    bonusA: result.bonusA, bonusB: result.bonusB,
-    gamesA: result.gA, gamesB: result.gB
-  };
+    matches[idx] = {
+      ...matches[idx],
+      sets: sets.filter(s => s.a !== '' && s.b !== ''),
+      status: 'submitted',
+      submittedBy: currentUser.uid,
+      submittedAt: Timestamp.now(),
+      pointsA: result.pA, pointsB: result.pB,
+      bonusA: result.bonusA, bonusB: result.bonusB,
+      gamesA: result.gA, gamesB: result.gB
+    };
 
-  await updateDoc(doc(db, 'tournaments', t.id), {
-    matches,
-    pendingApprovals: matches.filter(m => m.status === 'submitted').length
-  });
-  showToast('Score submitted — waiting for opponent to approve.');
+    await updateDoc(doc(db, 'tournaments', t.id), {
+      matches,
+      pendingApprovals: matches.filter(m => m.status === 'submitted').length
+    });
+    showToast('Score submitted — waiting for opponent to approve.');
+  } catch(e) {
+    console.error('submitScore FAILED:', e.code, e.message);
+    showToast('Failed to submit score — please try again.', 'error');
+  } finally {
+    isWriting = false;
+  }
 };
 
 window.approveScore = async (matchId) => {
-  const t = currentTournament;
-  const matches = [...(t.matches || [])];
-  const idx = matches.findIndex(m => m.id === matchId);
-  if (idx === -1) return;
+  console.log('approveScore called for', matchId);
+  isWriting = true;
+  try {
+    const t = currentTournament;
+    const matches = [...(t.matches || [])];
+    const idx = matches.findIndex(m => m.id === matchId);
+    if (idx === -1) { console.error('approveScore: match not found', matchId); return; }
 
-  matches[idx] = { ...matches[idx], status: 'approved', approvedAt: Timestamp.now() };
+    matches[idx] = { ...matches[idx], status: 'approved', approvedAt: Timestamp.now() };
 
-  const approvedCount = matches.filter(m => m.status === 'approved' && m.phase === 'league').length;
-  const leagueTotal = matches.filter(m => m.phase === 'league').length;
+    const approvedCount = matches.filter(m => m.status === 'approved' && m.phase === 'league').length;
+    const leagueTotal = matches.filter(m => m.phase === 'league').length;
 
-  const update = {
-    matches,
-    matchesPlayed: approvedCount,
-    pendingApprovals: matches.filter(m => m.status === 'submitted').length
-  };
+    const update = {
+      matches,
+      matchesPlayed: approvedCount,
+      pendingApprovals: matches.filter(m => m.status === 'submitted').length
+    };
 
-  if (approvedCount === leagueTotal && t.phase === 'league') {
-    update.phase = 'knockout';
-    update.knockoutMatches = generateKnockoutMatches(t);
+    if (approvedCount === leagueTotal && t.phase === 'league') {
+      update.phase = 'knockout';
+      update.knockoutMatches = generateKnockoutMatches(t);
+    }
+
+    console.log('approveScore: writing update...');
+    await updateDoc(doc(db, 'tournaments', t.id), update);
+    console.log('approveScore: write succeeded');
+    showToast('Score approved!');
+  } catch(e) {
+    console.error('approveScore FAILED:', e.code, e.message);
+    showToast('Failed to approve — please try again.', 'error');
+  } finally {
+    isWriting = false;
   }
-
-  await updateDoc(doc(db, 'tournaments', t.id), update);
-  showToast('Score approved!');
 };
 
 window.disputeScore = async (matchId) => {
-  const t = currentTournament;
-  const matches = [...(t.matches || [])];
-  const idx = matches.findIndex(m => m.id === matchId);
-  if (idx === -1) return;
+  isWriting = true;
+  try {
+    const t = currentTournament;
+    const matches = [...(t.matches || [])];
+    const idx = matches.findIndex(m => m.id === matchId);
+    if (idx === -1) return;
 
-  matches[idx] = { ...matches[idx], status: 'disputed' };
+    matches[idx] = { ...matches[idx], status: 'disputed' };
 
-  await updateDoc(doc(db, 'tournaments', t.id), {
-    matches,
-    pendingApprovals: matches.filter(m => m.status === 'submitted').length
-  });
-  showToast('Score disputed — the organiser has been notified.');
+    await updateDoc(doc(db, 'tournaments', t.id), {
+      matches,
+      pendingApprovals: matches.filter(m => m.status === 'submitted').length
+    });
+    showToast('Score disputed — the organiser has been notified.');
+  } catch(e) {
+    console.error('disputeScore FAILED:', e.code, e.message);
+    showToast('Failed to dispute — please try again.', 'error');
+  } finally {
+    isWriting = false;
+  }
 };
 
 // ── Auto-approval check ───────────────────────────────────────────────────
 
 async function checkAutoApprovals(tRef) {
+  if (isWriting) { console.log('Skipping auto-approval check — a manual write is in progress'); return; }
   const t = currentTournament;
   if (!t?.matches) return;
   const now = Date.now();
@@ -354,6 +392,8 @@ async function checkAutoApprovals(tRef) {
   });
 
   if (changed) {
+    isWriting = true;
+    console.log('Auto-approval: writing', matches.filter(m=>m.autoApproved).length, 'auto-approved match(es)');
     const approvedCount = matches.filter(m => m.status === 'approved' && m.phase === 'league').length;
     const leagueTotal = matches.filter(m => m.phase === 'league').length;
     const update = {
@@ -365,7 +405,14 @@ async function checkAutoApprovals(tRef) {
       update.phase = 'knockout';
       update.knockoutMatches = generateKnockoutMatches(t);
     }
-    await updateDoc(tRef, update);
+    try {
+      await updateDoc(tRef, update);
+      console.log('Auto-approval write succeeded');
+    } catch(e) {
+      console.error('Auto-approval write FAILED:', e.code, e.message);
+    } finally {
+      isWriting = false;
+    }
   }
 }
 
@@ -549,56 +596,80 @@ window.submitKnockoutScore = async (matchId) => {
   if (sets.length < 2) { showToast('Enter at least 2 set scores.', 'error'); return; }
   const result = calcMatchResult(sets);
 
-  const t = currentTournament;
-  const km = [...(t.knockoutMatches || [])];
-  const idx = km.findIndex(m => m.id === matchId);
-  if (idx === -1) return;
+  isWriting = true;
+  try {
+    const t = currentTournament;
+    const km = [...(t.knockoutMatches || [])];
+    const idx = km.findIndex(m => m.id === matchId);
+    if (idx === -1) return;
 
-  km[idx] = { ...km[idx], sets, status: 'submitted', submittedBy: currentUser.uid, submittedAt: Timestamp.now(),
-    pointsA: result.pA, pointsB: result.pB, gamesA: result.gA, gamesB: result.gB };
+    km[idx] = { ...km[idx], sets, status: 'submitted', submittedBy: currentUser.uid, submittedAt: Timestamp.now(),
+      pointsA: result.pA, pointsB: result.pB, gamesA: result.gA, gamesB: result.gB };
 
-  await updateDoc(doc(db, 'tournaments', t.id), { knockoutMatches: km });
-  showToast('Score submitted — waiting for opponent to approve.');
+    await updateDoc(doc(db, 'tournaments', t.id), { knockoutMatches: km });
+    showToast('Score submitted — waiting for opponent to approve.');
+  } catch(e) {
+    console.error('submitKnockoutScore FAILED:', e.code, e.message);
+    showToast('Failed to submit — please try again.', 'error');
+  } finally {
+    isWriting = false;
+  }
 };
 
 window.approveKnockoutScore = async (matchId) => {
-  const t = currentTournament;
-  const km = [...(t.knockoutMatches || [])];
-  const idx = km.findIndex(m => m.id === matchId);
-  if (idx === -1) return;
+  isWriting = true;
+  try {
+    const t = currentTournament;
+    const km = [...(t.knockoutMatches || [])];
+    const idx = km.findIndex(m => m.id === matchId);
+    if (idx === -1) return;
 
-  const m = km[idx];
-  const r = calcMatchResult(m.sets || []);
-  const winner = r.winsA > r.winsB ? m.teamA : m.teamB;
-  const loser  = r.winsA > r.winsB ? m.teamB : m.teamA;
+    const m = km[idx];
+    const r = calcMatchResult(m.sets || []);
+    const winner = r.winsA > r.winsB ? m.teamA : m.teamB;
+    const loser  = r.winsA > r.winsB ? m.teamB : m.teamA;
 
-  km[idx] = { ...m, status: 'approved', approvedAt: Timestamp.now(), winner, loser };
+    km[idx] = { ...m, status: 'approved', approvedAt: Timestamp.now(), winner, loser };
 
-  if (matchId === 'sf1') {
-    const f3 = km.findIndex(x => x.id === 'f3');
-    const fin = km.findIndex(x => x.id === 'final');
-    if (!km[f3].teamA) km[f3] = { ...km[f3], teamA: loser, playerIds: [...(km[f3].playerIds||[]), ...(loser?.playerIds||[])] };
-    if (!km[fin].teamA) km[fin] = { ...km[fin], teamA: winner, playerIds: [...(km[fin].playerIds||[]), ...(winner?.playerIds||[])] };
+    if (matchId === 'sf1') {
+      const f3 = km.findIndex(x => x.id === 'f3');
+      const fin = km.findIndex(x => x.id === 'final');
+      if (!km[f3].teamA) km[f3] = { ...km[f3], teamA: loser, playerIds: [...(km[f3].playerIds||[]), ...(loser?.playerIds||[])] };
+      if (!km[fin].teamA) km[fin] = { ...km[fin], teamA: winner, playerIds: [...(km[fin].playerIds||[]), ...(winner?.playerIds||[])] };
+    }
+    if (matchId === 'sf2') {
+      const f3 = km.findIndex(x => x.id === 'f3');
+      const fin = km.findIndex(x => x.id === 'final');
+      if (!km[f3].teamB) km[f3] = { ...km[f3], teamB: loser, playerIds: [...(km[f3].playerIds||[]), ...(loser?.playerIds||[])] };
+      if (!km[fin].teamB) km[fin] = { ...km[fin], teamB: winner, playerIds: [...(km[fin].playerIds||[]), ...(winner?.playerIds||[])] };
+    }
+
+    await updateDoc(doc(db, 'tournaments', t.id), { knockoutMatches: km });
+    showToast('Score approved!');
+  } catch(e) {
+    console.error('approveKnockoutScore FAILED:', e.code, e.message);
+    showToast('Failed to approve — please try again.', 'error');
+  } finally {
+    isWriting = false;
   }
-  if (matchId === 'sf2') {
-    const f3 = km.findIndex(x => x.id === 'f3');
-    const fin = km.findIndex(x => x.id === 'final');
-    if (!km[f3].teamB) km[f3] = { ...km[f3], teamB: loser, playerIds: [...(km[f3].playerIds||[]), ...(loser?.playerIds||[])] };
-    if (!km[fin].teamB) km[fin] = { ...km[fin], teamB: winner, playerIds: [...(km[fin].playerIds||[]), ...(winner?.playerIds||[])] };
-  }
-
-  await updateDoc(doc(db, 'tournaments', t.id), { knockoutMatches: km });
-  showToast('Score approved!');
 };
 
 window.disputeKnockoutScore = async (matchId) => {
-  const t = currentTournament;
-  const km = [...(t.knockoutMatches || [])];
-  const idx = km.findIndex(m => m.id === matchId);
-  if (idx === -1) return;
-  km[idx] = { ...km[idx], status: 'disputed' };
-  await updateDoc(doc(db, 'tournaments', t.id), { knockoutMatches: km });
-  showToast('Score disputed.');
+  isWriting = true;
+  try {
+    const t = currentTournament;
+    const km = [...(t.knockoutMatches || [])];
+    const idx = km.findIndex(m => m.id === matchId);
+    if (idx === -1) return;
+    km[idx] = { ...km[idx], status: 'disputed' };
+    await updateDoc(doc(db, 'tournaments', t.id), { knockoutMatches: km });
+    showToast('Score disputed.');
+  } catch(e) {
+    console.error('disputeKnockoutScore FAILED:', e.code, e.message);
+    showToast('Failed to dispute — please try again.', 'error');
+  } finally {
+    isWriting = false;
+  }
 };
 
 // ── PLAYERS TAB ───────────────────────────────────────────────────────────
@@ -776,4 +847,5 @@ window.doStartTournament = async (tournamentId) => {
 
 export function cleanupTournament() {
   if (unsubTournament) { unsubTournament(); unsubTournament = null; }
+  if (autoApprovalTimer) { clearInterval(autoApprovalTimer); autoApprovalTimer = null; }
 }
